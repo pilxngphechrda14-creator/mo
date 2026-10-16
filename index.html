@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="th" class="dark h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>นักสืบไซเบอร์ ป.5 - AR Cyber Sleuth</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        kanit: ['Kanit', 'sans-serif'],
+                    },
+                    colors: {
+                        cyber: {
+                            50: '#eef2ff',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            900: '#0f172a',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Google Fonts: Kanit -->
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome v6 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- MediaPipe Hands -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        * {
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        body {
+            font-family: 'Kanit', sans-serif;
+            background-color: #030712;
+            color: #f3f4f6;
+            overflow: hidden;
+            height: 100vh;
+            margin: 0;
+            padding: 0;
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .glass-card {
+            background: rgba(30, 41, 59, 0.65);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        @keyframes pulseGlow {
+            0%, 100% { box-shadow: 0 0 15px rgba(99, 102, 241, 0.5); }
+            50% { box-shadow: 0 0 30px rgba(99, 102, 241, 0.9); }
+        }
+        .animate-pulse-glow {
+            animation: pulseGlow 2s infinite ease-in-out;
+        }
+        @keyframes popIn {
+            0% { transform: scale(0.8); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .animate-pop-in {
+            animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+        /* Hide scrollbar for chrome, safari and opera */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        /* Hide scrollbar for IE, Edge and Firefox */
+        .no-scrollbar {
+            -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
+        }
+    </style>
+</head>
+<body class="h-full flex flex-col justify-between relative select-none">
+
+    <!-- Full-screen AR Webcam Background -->
+    <div class="fixed inset-0 z-0 overflow-hidden bg-gray-950">
+        <video id="webcam" autoplay playsinline muted class="absolute inset-0 w-full h-full object-cover -scale-x-100 opacity-40 filter contrast-125 brightness-90"></video>
+        <canvas id="ar-canvas" class="absolute inset-0 w-full h-full pointer-events-none z-10"></canvas>
+        <div class="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/70 to-gray-950/40 z-0"></div>
+    </div>
+
+    <!-- Interactive Hand Cursor -->
+    <div id="hand-cursor" class="fixed w-8 h-8 rounded-full border-2 border-cyan-400 bg-cyan-400/30 backdrop-blur-sm pointer-events-none z-50 transform -translate-x-1/2 -translate-y-1/2 transition-transform duration-75 hidden flex items-center justify-center">
+        <div class="w-2 h-2 bg-cyan-200 rounded-full animate-ping"></div>
+    </div>
+
+    <!-- Notification Modal Box (Replacing alert) -->
+    <div id="custom-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md hidden p-4">
+        <div class="glass-panel rounded-3xl p-6 max-w-sm w-full text-center shadow-2xl animate-pop-in border border-indigo-500/30">
+            <div id="modal-icon" class="w-16 h-16 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center text-3xl mx-auto mb-4 border border-indigo-500/40">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+            </div>
+            <h3 id="modal-title" class="text-xl font-bold text-white mb-2">แจ้งเตือน</h3>
+            <p id="modal-message" class="text-gray-300 text-sm mb-6">ข้อความแจ้งเตือนระบบ</p>
+            <button onclick="closeModal()" class="w-full py-3 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold rounded-2xl shadow-lg shadow-indigo-500/30 transition-all duration-200 cursor-pointer">
+                ตกลง
+            </button>
+        </div>
+    </div>
+
+    <!-- Screen 1: Welcome Screen -->
+    <div id="screen-welcome" class="relative z-20 flex-1 flex flex-col items-center justify-center p-4 max-w-md mx-auto w-full overflow-y-auto no-scrollbar">
+        <div class="glass-panel rounded-3xl p-6 md:p-8 w-full shadow-2xl border border-indigo-500/20 text-center animate-pop-in">
+            <!-- Badge -->
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-xs font-semibold mb-4">
+                <i class="fa-solid fa-shield-halved"></i> วิทยาการคำนวณ ป.5/3
+            </div>
+            
+            <h1 class="text-2xl md:text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-cyan-300 to-teal-300 mb-2">
+                นักสืบไซเบอร์ ป.5
+            </h1>
+            <p class="text-xs md:text-sm text-gray-300 mb-6">
+                AR Cyber Sleuth: ผจญภัยปกป้องข้อมูลส่วนตัวและรู้เท่าทันภัยไซเบอร์ด้วยเทคโนโลยี AR และ AI Hand Tracking!
+            </p>
+
+            <!-- Camera Preview & Photo Capture -->
+            <div class="mb-6 relative">
+                <div class="w-32 h-32 md:w-36 md:h-36 mx-auto rounded-full p-1 bg-gradient-to-tr from-indigo-500 via-cyan-400 to-teal-400 animate-pulse-glow relative overflow-hidden shadow-xl">
+                    <div class="w-full h-full rounded-full overflow-hidden bg-gray-900 relative">
+                        <video id="preview-video" autoplay playsinline muted class="w-full h-full object-cover -scale-x-100"></video>
+                        <canvas id="snapshot-canvas" class="hidden"></canvas>
+                        <img id="snapshot-img" class="w-full h-full object-cover hidden" alt="Agent Photo">
+                    </div>
+                </div>
+                <button type="button" onclick="takeSnapshot()" class="mt-3 px-4 py-2 bg-indigo-600/80 hover:bg-indigo-600 text-white text-xs font-medium rounded-full shadow-lg border border-indigo-400/30 transition-all duration-200 inline-flex items-center gap-2 cursor-pointer">
+                    <i class="fa-solid fa-camera"></i> ถ่ายภาพตัวแทนนักสืบ
+                </button>
+            </div>
+
+            <!-- Player Name Input -->
+            <div class="mb-6 text-left">
+                <label class="block text-xs font-medium text-gray-300 mb-1.5 flex items-center gap-1.5">
+                    <i class="fa-solid fa-id-badge text-cyan-400"></i> ชื่อเล่น / ฉายานักสืบ (ไม่เกิน 20 ตัวอักษร)
+                </label>
+                <input type="text" id="player-name" maxlength="20" placeholder="ระบุชื่อของคุณ..." oninput="validateWelcomeForm()"
+                    class="w-full px-4 py-3 bg-gray-900/80 border border-gray-700 rounded-2xl text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 text-sm transition-all duration-200">
+            </div>
+
+            <!-- Start Game Button -->
+            <button id="start-btn" onclick="startGame()" disabled
+                class="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 disabled:from-gray-800 disabled:to-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed text-white font-bold rounded-2xl shadow-xl shadow-indigo-600/30 transition-all duration-300 text-sm md:text-base flex items-center justify-center gap-2 cursor-pointer">
+                <span>เริ่มปฏิบัติการนักสืบ</span>
+                <i class="fa-solid fa-arrow-right"></i>
+            </button>
+            
+            <!-- Leaderboard Button -->
+            <button onclick="openLeaderboard()" class="mt-3 w-full py-2.5 bg-gray-800/80 hover:bg-gray-800 text-gray-300 hover:text-white font-medium rounded-2xl border border-gray-700 transition-all duration-200 text-xs flex items-center justify-center gap-2 cursor-pointer">
+                <i class="fa-solid fa-trophy text-yellow-400"></i> กระดานผู้นำนักสืบไซเบอร์
+            </button>
+        </div>
+    </div>
+
+    <!-- Screen 2: Game Screen -->
+    <div id="screen-game" class="relative z-20 flex-1 flex flex-col justify-between p-4 max-w-xl mx-auto w-full hidden overflow-y-auto no-scrollbar">
+        <!-- Game Header -->
+        <header class="glass-panel rounded-2xl p-3 mb-3 flex items-center justify-between border border-indigo-500/20 shadow-lg">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-full border border-indigo-400/50 overflow-hidden bg-gray-900 shadow-md">
+                    <img id="hud-photo" class="w-full h-full object-cover" alt="Agent">
+                </div>
+                <div>
+                    <h4 id="hud-name" class="text-xs md:text-sm font-bold text-white truncate max-w-[100px] md:max-w-[140px]">สายลับ</h4>
+                    <span class="text-[10px] text-cyan-400 font-medium inline-flex items-center gap-1">
+                        <i class="fa-solid fa-circle text-[6px] animate-pulse text-green-400"></i> ปฏิบัติการ AR
+                    </span>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2 md:gap-4">
+                <div class="bg-indigo-950/60 border border-indigo-500/30 px-3 py-1.5 rounded-xl text-center">
+                    <span class="block text-[10px] text-indigo-300">ความคืบหน้า</span>
+                    <span id="hud-progress" class="text-xs font-bold text-white">1 / 12</span>
+                </div>
+                <div class="bg-cyan-950/60 border border-cyan-500/30 px-3 py-1.5 rounded-xl text-center">
+                    <span class="block text-[10px] text-cyan-300">คะแนน</span>
+                    <span id="hud-score" class="text-xs font-bold text-cyan-400">0</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Question & Interaction Area -->
+        <main class="flex-1 flex flex-col justify-center my-2">
+            <div id="question-card" class="glass-panel rounded-3xl p-5 md:p-6 shadow-2xl border border-indigo-500/20 transition-all duration-300">
+                <!-- Category Tag -->
+                <div class="flex items-center justify-between mb-3">
+                    <span id="q-category" class="px-2.5 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-[10px] md:text-xs font-semibold">
+                        ความปลอดภัยของข้อมูลส่วนตัว
+                    </span>
+                    <span class="text-[10px] text-gray-400 flex items-center gap-1">
+                        <i class="fa-solid fa-hand text-indigo-400"></i> ชูนิ้วชี้เลือกคำตอบ หรือแตะหน้าจอ
+                    </span>
+                </div>
+
+                <!-- Question Text -->
+                <h2 id="q-text" class="text-base md:text-lg font-semibold text-white mb-5 leading-relaxed">
+                    คำถามกำลังโหลด...
+                </h2>
+
+                <!-- Options Grid -->
+                <div id="options-container" class="grid grid-cols-1 gap-3">
+                    <!-- Options injected dynamically -->
+                </div>
+            </div>
+        </main>
+
+        <!-- Game Footer Controls -->
+        <footer class="pt-2 text-center">
+            <div class="inline-flex items-center gap-2 text-[11px] text-gray-400 bg-gray-900/60 px-4 py-2 rounded-full border border-gray-800">
+                <i class="fa-solid fa-fingerprint text-indigo-400 animate-pulse"></i> 
+                ใช้กล้อง AI ตรวจจับนิ้ว หรือคลิกปุ่มเพื่อตอบคำถาม
+            </div>
+        </footer>
+    </div>
+
+    <!-- Screen 3: Result Screen -->
+    <div id="screen-result" class="relative z-20 flex-1 flex flex-col items-center justify-center p-4 max-w-md mx-auto w-full hidden overflow-y-auto no-scrollbar">
+        <div class="glass-panel rounded-3xl p-6 md:p-8 w-full shadow-2xl border border-indigo-500/30 text-center animate-pop-in">
+            <div class="w-20 h-20 rounded-full bg-gradient-to-tr from-yellow-500 to-amber-300 text-gray-950 flex items-center justify-center text-4xl mx-auto mb-4 shadow-xl shadow-yellow-500/20 animate-bounce">
+                <i class="fa-solid fa-award"></i>
+            </div>
+
+            <h2 class="text-2xl font-bold text-white mb-1">ภารกิจสำเร็จลุล่วง!</h2>
+            <p class="text-xs text-gray-300 mb-6">คุณคือสุดยอดนักสืบไซเบอร์ ป.5 ผู้ปกป้องโลกดิจิทัลตัวจริง</p>
+
+            <!-- Score Summary Box -->
+            <div class="bg-gray-900/80 rounded-2xl p-4 border border-gray-800 mb-6 flex justify-around items-center">
+                <div>
+                    <span class="block text-[11px] text-gray-400">คะแนนรวม</span>
+                    <span id="final-score" class="text-2xl font-black text-cyan-400">120</span>
+                    <span class="text-xs text-gray-400">/ 120</span>
+                </div>
+                <div class="w-px h-10 bg-gray-800"></div>
+                <div>
+                    <span class="block text-[11px] text-gray-400">ระดับความสามารถ</span>
+                    <span id="final-rank" class="text-sm font-bold text-indigo-400">Cyber Master</span>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="space-y-3">
+                <button onclick="saveScoreAndOpenLeaderboard()" class="w-full py-3 bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white font-bold rounded-2xl shadow-lg shadow-indigo-600/30 transition-all duration-200 text-sm flex items-center justify-center gap-2 cursor-pointer">
+                    <i class="fa-solid fa-cloud-arrow-up"></i> บันทึกผลงาน & ดูอันดับ
+                </button>
+                <button onclick="restartGame()" class="w-full py-3 bg-gray-800 hover:bg-gray-700 text-gray-200 font-semibold rounded-2xl border border-gray-700 transition-all duration-200 text-sm flex items-center justify-center gap-2 cursor-pointer">
+                    <i class="fa-solid fa-rotate-right"></i> เล่นใหม่อีกครั้ง
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaderboard Modal -->
+    <div id="leaderboard-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md hidden p-4">
+        <div class="glass-panel rounded-3xl p-6 max-w-md w-full shadow-2xl animate-pop-in border border-indigo-500/30 flex flex-col max-h-[85vh]">
+            <div class="flex items-center justify-between mb-4 pb-2 border-b border-gray-800">
+                <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-trophy text-yellow-400"></i> กระดานผู้นำนักสืบไซเบอร์
+                </h3>
+                <button onclick="closeLeaderboard()" class="w-8 h-8 rounded-full bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white flex items-center justify-center transition-all cursor-pointer">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- Leaderboard List -->
+            <div id="leaderboard-list" class="flex-1 overflow-y-auto space-y-2 pr-1 no-scrollbar my-2">
+                <div class="text-center py-8 text-gray-400 text-xs">
+                    <i class="fa-solid fa-spinner fa-spin text-indigo-400 text-lg mb-2"></i>
+                    <p>กำลังโหลดอันดับจากฐานข้อมูล...</p>
+                </div>
+            </div>
+
+            <button onclick="closeLeaderboard()" class="mt-3 w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-xs transition-all cursor-pointer">
+                ปิดหน้าต่าง
+            </button>
+        </div>
+    </div>
+
+    <!-- Firebase & Application Scripts -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, getDocs, query, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Firebase Configuration & Variables
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'cyber-sleuth-p5-default';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            apiKey: "AIzaSyDummyKeyForLocalTesting12345",
+            authDomain: "cyber-sleuth.firebaseapp.com",
+            projectId: "cyber-sleuth",
+            storageBucket: "cyber-sleuth.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "1:123456789:web:abcdef"
+        };
+
+        let app, db, auth, currentUser = null;
+        let isFirebaseInitialized = false;
+
+        try {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            
+            const initAuth = async () => {
+                try {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                    currentUser = auth.currentUser;
+                    isFirebaseInitialized = true;
+                    console.log("Firebase initialized successfully. User ID:", currentUser?.uid);
+                } catch (err) {
+                    console.warn("Firebase auth warning (using fallback session):", err);
+                }
+            };
+            initAuth();
+        } catch (e) {
+            console.warn("Firebase initialization skipped or failed:", e);
+        }
+
+        // Game Questions Database (Aligned with Thai Primary Computing Science Curriculum Grade 5/3)
+        const questions = [
+            {
+                category: "ความปลอดภัยของข้อมูลส่วนตัว",
+                text: "หากมีบุคคลแปลกหน้าทักแชทมาขอ 'รหัสผ่าน' หรือ 'เลขบัตรประชาชน' ของนักเรียน นักเรียนควรปฏิบัติตามข้อใด?",
+                options: [
+                    "บอกรหัสผ่านเฉพาะเพื่อนสนิทเท่านั้น",
+                    "ปฏิเสธทันที และแจ้งผู้ปกครองหรือคุณครู",
+                    "บอกข้อมูลไปเพราะคิดว่าไม่มีอันตราย",
+                    "บอกวันเกิดและเบอร์โทรศัพท์แทน"
+                ],
+                answer: 1
+            },
+            {
+                category: "รักษ์ความเป็นส่วนตัว",
+                text: "ข้อมูลใดต่อไปนี้ 'ไม่ควร' นำไปโพสต์เผยแพร่ลงบนสื่อสังคมออนไลน์สาธารณะอย่างเด็ดขาด?",
+                options: [
+                    "ภาพถ่ายวิวทิวทัศน์ธรรมชาติสวยงาม",
+                    "ภาพวาดระบายสีฝีมือตนเอง",
+                    "ที่อยู่บ้านเลขที่ เบอร์โทรศัพท์ และเลขบัตรประชาชน",
+                    "ชื่อสัตว์เลี้ยงตัวโปรด"
+                ],
+                answer: 2
+            },
+            {
+                category: "รู้เท่าทันภัยไซเบอร์",
+                text: "ข้อความแจ้งเตือนว่า 'ยินดีด้วยคุณได้รับรางวัลใหญ่ ไอโฟนฟรี! กรุณาคลิกลิงก์นี้และกรอกข้อมูลส่วนตัว' นักเรียนควรทำอย่างไร?",
+                options: [
+                    "รีบคลิกลิงก์และกรอกข้อมูลเพื่อรับของรางวัลทันที",
+                    "ส่งต่อให้เพื่อนทุกคนในห้องรับโชคด้วย",
+                    "เฉยๆ ไว้ และลบทิ้งทันทีเพราะอาจเป็น Phishing (ฟิชชิ่ง) หลอกลวง",
+                    "โทรศัพท์ไปถามบริษัทผู้ผลิตทันที"
+                ],
+                answer: 2
+            },
+            {
+                category: "การสร้างรหัสผ่านที่ปลอดภัย",
+                text: "รหัสผ่าน (Password) ข้อใดมีความปลอดภัยและคาดเดายากที่สุดสำหรับบัญชีออนไลน์?",
+                options: [
+                    "12345678",
+                    "password",
+                    "ชื่อเล่นและวันเกิดของตนเอง",
+                    "K@5#mP9!x$ (ผสมตัวอักษรพิมพ์ใหญ่ เล็ก ตัวเลข และสัญลักษณ์)"
+                ],
+                answer: 3
+            },
+            {
+                category: "การกลั่นแกล้งทางไซเบอร์ (Cyberbullying)",
+                text: "หากนักเรียนพบเห็นเพื่อนในโรงเรียนถูกโพสต์ข้อความกลั่นแกล้งหรือล้อเลียนอย่างเสียหายใน Facebook นักเรียนควรทำอย่างไร?",
+                options: [
+                    "เข้าไปกดไลก์และร่วมคอมเมนต์สนุกสนานด้วย",
+                    "นิ่งเฉยและทำเป็นมองไม่เห็น",
+                    "บันทึกหลักฐาน (แคปหน้าจอ) และแจ้งคุณครูหรือผู้ปกครองให้ช่วยเหลือ",
+                    "สร้างโพสต์โต้กลับด้วยถ้อยคำรุนแรงเช่นกัน"
+                ],
+                answer: 2
+            },
+            {
+                category: "การใช้เทคโนโลยีสารสนเทศอย่างมีความรับผิดชอบ",
+                text: "เมื่อนักเรียนต้องการนำรูปภาพหรือบทความของผู้อื่นจากอินเทอร์เน็ตมาทำรายงานส่งคุณครู สิ่งที่ถูกต้องที่สุดคือข้อใด?",
+                options: [
+                    "คัดลอกมาทั้งหมดโดยไม่ต้องอ้างอิงแหล่งที่มา",
+                    "อ้างอิงแหล่งที่มาของข้อมูลหรือขออนุญาตเจ้าของผลงาน",
+                    "อ้างว่าเป็นผลงานของตนเองทั้งหมด",
+                    "แก้ไขชื่อผู้แต่งเป็นชื่อของตนเอง"
+                ],
+                answer: 1
+            },
+            {
+                category: "การประเมินความน่าเชื่อถือของข้อมูล",
+                text: "ข่าวสารในอินเทอร์เน็ตเรื่อง 'กินมะนาวผสมโซดา รักษามะเร็งหายขาดใน 3 วัน' นักเรียนควรปฏิบัติอย่างไร?",
+                options: [
+                    "เชื่อทันทีและทดลองทำตามเพราะอ่านเจอในเน็ต",
+                    "แชร์ต่อให้คนในครอบครัวอ่านทันที",
+                    "ตรวจสอบความน่าเชื่อถือจากหน่วยงานแพทย์หรือเว็บไซต์ทางการ ก่อนปักใจเชื่อ",
+                    "นำไปโพสต์ขายสูตรยาสมุนไพร"
+                ],
+                answer: 2
+            },
+            {
+                category: "จริยธรรมและการเคารพผู้อื่น",
+                text: "การแอบเข้าสู่ระบบคอมพิวเตอร์หรือบัญชีโซเชียลมีเดียของผู้อื่นโดยไม่ได้รับอนุญาต จัดเป็นพฤติกรรมในข้อใด?",
+                options: [
+                    "การแสดงความฉลาดทางเทคโนโลยี",
+                    "การหยอกล้อเล่นกันระหว่างเพื่อน",
+                    "การกระทำความผิดทางกฎหมายและผิดจริยธรรมคอมพิวเตอร์",
+                    "เป็นสิทธิส่วนบุคคลที่สามารถทำได้"
+                ],
+                answer: 2
+            },
+            {
+                category: "การจัดการไฟล์และข้อมูล",
+                text: "การกระทำในข้อใดช่วยป้องกันความเสียหายจากการสูญหายของข้อมูลสำคัญในคอมพิวเตอร์ได้ดีที่สุด?",
+                options: [
+                    "เปิดคอมพิวเตอร์ทิ้งไว้ตลอด 24 ชั่วโมง",
+                    "สำรองข้อมูล (Backup) เก็บไว้ในหน่วยความจำสำรองหรือระบบคลาวด์สม่ำเสมอ",
+                    "ลบไฟล์ที่ไม่ใช้ทั้งหมดออกจากเครื่องทุกวัน",
+                    "ปิดการใช้งานโปรแกรมสแกนไวรัส"
+                ],
+                answer: 1
+            },
+            {
+                category: "การเลือกใช้สื่อดิจิทัล",
+                text: "หากนักเรียนต้องใช้งานอินเทอร์เน็ตเป็นเวลานาน ควรปฏิบัติตนอย่างไรเพื่อให้เหมาะสมต่อสุขภาพ?",
+                options: [
+                    "นั่งจ้องหน้าจอต่อเนื่อง 5 ชั่วโมงโดยไม่พักสายตา",
+                    "พักสายตาและขยับร่างกายทุกๆ 30-60 นาที",
+                    "ปิดไฟในห้องให้มืดสนิทเพื่อให้มองจอได้ชัดเจนขึ้น",
+                    "เล่นเกมหรือใช้งานมือถือจนถึงตี 3 ทุกคืน"
+                ],
+                answer: 1
+            },
+            {
+                category: "ทรัพย์สินทางปัญญา",
+                text: "การดาวน์โหลดภาพยนตร์หรือเพลงที่มีลิขสิทธิ์จากเว็บไซต์เถื่อนฟรีโดยไม่จ่ายเงิน จัดว่าถูกต้องหรือไม่?",
+                options: [
+                    "ถูกต้อง เพราะทุกคนในอินเทอร์เน็ตแจกฟรี",
+                    "ไม่ถูกต้อง เป็นการละเมิดลิขสิทธิ์และทรัพย์สินทางปัญญาของผู้อื่น",
+                    "ถูกต้อง หากดาวน์โหลดเก็บไว้ดูคนเดียวไม่เผยแพร่",
+                    "ถูกต้อง หากนำไปเปิดให้เพื่อนดูในห้องเรียน"
+                ],
+                answer: 1
+            },
+            {
+                category: "การใช้อินเทอร์เน็ตอย่างปลอดภัย",
+                text: "เมื่อใช้งานคอมพิวเตอร์สาธารณะเสร็จเรียบร้อยแล้ว ก่อนเดินออกจากเครื่องนักเรียนควรทำสิ่งสำคัญที่สุดคือข้อใด?",
+                options: [
+                    "ปิดหน้าจอคอมพิวเตอร์โดยตรง",
+                    "ถอดปลั๊กไฟเครื่องคอมพิวเตอร์",
+                    "ออกจากระบบ (Log out / Sign out) ทุกบัญชีผู้ใช้และลบประวัติการใช้งาน",
+                    "เปลี่ยนภาพพื้นหลังหน้าจอเป็นรูปตนเอง"
+                ],
+                answer: 2
+            }
+        ];
+
+        let gameState = {
+            playerName: "",
+            playerPhoto: "",
+            currentQuestionIndex: 0,
+            score: 0,
+            selectedAnswer: null
+        };
+
+        // DOM Elements
+        const webcamElement = document.getElementById('webcam');
+        const previewVideo = document.getElementById('preview-video');
+        const snapshotCanvas = document.getElementById('snapshot-canvas');
+        const snapshotImg = document.getElementById('snapshot-img');
+        const playerNameInput = document.getElementById('player-name');
+        const startBtn = document.getElementById('start-btn');
+        const handCursor = document.getElementById('hand-cursor');
+        
+        // Screens
+        const screenWelcome = document.getElementById('screen-welcome');
+        const screenGame = document.getElementById('screen-game');
+        const screenResult = document.getElementById('screen-result');
+
+        // HUD Elements
+        const hudPhoto = document.getElementById('hud-photo');
+        const hudName = document.getElementById('hud-name');
+        const hudProgress = document.getElementById('hud-progress');
+        const hudScore = document.getElementById('hud-score');
+        const qCategory = document.getElementById('q-category');
+        const qText = document.getElementById('q-text');
+        const optionsContainer = document.getElementById('options-container');
+
+        // Modal Elements
+        const customModal = document.getElementById('custom-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalMessage = document.getElementById('modal-message');
+
+        window.showModal = function(title, message) {
+            modalTitle.innerText = title;
+            modalMessage.innerText = message;
+            customModal.classList.remove('hidden');
+        };
+
+        window.closeModal = function() {
+            customModal.classList.add('hidden');
+        };
+
+        // Initialize Webcam Stream
+        async function initWebcam() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }, 
+                    audio: false 
+                });
+                webcamElement.srcObject = stream;
+                previewVideo.srcObject = stream;
+            } catch (err) {
+                console.warn("Webcam access error:", err);
+                showModal("คำเตือนกล้อง", "ไม่สามารถเข้าถึงกล้องเว็บแคมได้ ระบบจะยังคงสามารถเล่นเกมได้ตามปกติ");
+            }
+        }
+        initWebcam();
+
+        // Snapshot Functionality
+        window.takeSnapshot = function() {
+            const width = previewVideo.videoWidth || 320;
+            const height = previewVideo.videoHeight || 240;
+            snapshotCanvas.width = width;
+            snapshotCanvas.height = height;
+            const ctx = snapshotCanvas.getContext('2d');
+            // Mirror image for snapshot consistency
+            ctx.translate(width, 0);
+            ctx.scale(-1, 1);
+            ctx.drawImage(previewVideo, 0, 0, width, height);
+            
+            const dataUrl = snapshotCanvas.toDataURL('image/png');
+            gameState.playerPhoto = dataUrl;
+            snapshotImg.src = dataUrl;
+            snapshotImg.classList.remove('hidden');
+            previewVideo.classList.add('hidden');
+            validateWelcomeForm();
+        };
+
+        window.validateWelcomeForm = function() {
+            const nameVal = playerNameInput.value.trim();
+            if (nameVal.length > 0 && gameState.playerPhoto) {
+                startBtn.disabled = false;
+            } else {
+                startBtn.disabled = true;
+            }
+        };
+
+        playerNameInput.addEventListener('input', validateWelcomeForm);
+
+        // Start Game
+        window.startGame = function() {
+            gameState.playerName = playerNameInput.value.trim();
+            if (!gameState.playerName || !gameState.playerPhoto) return;
+
+            hudName.innerText = gameState.playerName;
+            hudPhoto.src = gameState.playerPhoto;
+            
+            screenWelcome.classList.add('hidden');
+            screenGame.classList.remove('hidden');
+            
+            loadQuestion();
+        };
+
+        // Load Question
+        function loadQuestion() {
+            if (gameState.currentQuestionIndex >= questions.length) {
+                endGame();
+                return;
+            }
+
+            const q = questions[gameState.currentQuestionIndex];
+            hudProgress.innerText = `${gameState.currentQuestionIndex + 1} / ${questions.length}`;
+            hudScore.innerText = gameState.score;
+            qCategory.innerText = q.category;
+            qText.innerText = q.text;
+
+            optionsContainer.innerHTML = '';
+            q.options.forEach((opt, idx) => {
+                const btn = document.createElement('button');
+                btn.className = "w-full text-left p-4 rounded-2xl glass-card hover:bg-indigo-600/30 border border-indigo-500/20 hover:border-indigo-400 text-gray-200 text-xs md:text-sm font-medium transition-all duration-200 flex items-center justify-between group cursor-pointer shadow-md";
+                btn.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <span class="w-7 h-7 rounded-xl bg-indigo-500/20 group-hover:bg-indigo-500 text-indigo-300 group-hover:text-white flex items-center justify-center text-xs font-bold transition-all">${String.fromCharCode(65 + idx)}</span>
+                        <span>${opt}</span>
+                    </div>
+                    <i class="fa-solid fa-chevron-right text-gray-500 group-hover:text-indigo-400 transition-all"></i>
+                `;
+                btn.onclick = () => selectAnswer(idx);
+                optionsContainer.appendChild(btn);
+            });
+        }
+
+        // Answer Selection
+        window.selectAnswer = function(selectedIndex) {
+            const q = questions[gameState.currentQuestionIndex];
+            const buttons = optionsContainer.getElementsByTagName('button');
+
+            // Disable all buttons to prevent double clicks
+            for (let b of buttons) {
+                b.style.pointerEvents = 'none';
+            }
+
+            if (selectedIndex === q.answer) {
+                gameState.score += 10;
+                hudScore.innerText = gameState.score;
+                buttons[selectedIndex].className = "w-full text-left p-4 rounded-2xl bg-emerald-600/30 border border-emerald-500 text-white text-xs md:text-sm font-medium flex items-center justify-between shadow-lg shadow-emerald-600/20";
+                buttons[selectedIndex].innerHTML += `<i class="fa-solid fa-circle-check text-emerald-400 text-lg"></i>`;
+                triggerParticleEffect();
+            } else {
+                buttons[selectedIndex].className = "w-full text-left p-4 rounded-2xl bg-rose-600/30 border border-rose-500 text-white text-xs md:text-sm font-medium flex items-center justify-between shadow-lg shadow-rose-600/20";
+                buttons[selectedIndex].innerHTML += `<i class="fa-solid fa-circle-xmark text-rose-400 text-lg"></i>`;
+                // Highlight correct answer
+                buttons[q.answer].className = "w-full text-left p-4 rounded-2xl bg-emerald-600/30 border border-emerald-500 text-white text-xs md:text-sm font-medium flex items-center justify-between shadow-lg";
+            }
+
+            setTimeout(() => {
+                gameState.currentQuestionIndex++;
+                loadQuestion();
+            }, 1500);
+        };
+
+        // Particle effect simulation using canvas
+        const arCanvas = document.getElementById('ar-canvas');
+        const ctxAr = arCanvas.getContext('2d');
+        let particles = [];
+
+        function triggerParticleEffect() {
+            const w = arCanvas.width = window.innerWidth;
+            const h = arCanvas.height = window.innerHeight;
+            for (let i = 0; i < 50; i++) {
+                particles.push({
+                    x: w / 2,
+                    y: h / 2,
+                    vx: (Math.random() - 0.5) * 12,
+                    vy: (Math.random() - 0.5) * 12,
+                    radius: Math.random() * 6 + 2,
+                    color: ['#6366f1', '#38bdf8', '#34d399', '#facc15'][Math.floor(Math.random() * 4)],
+                    alpha: 1
+                });
+            }
+        }
+
+        // End Game
+        function endGame() {
+            screenGame.classList.add('hidden');
+            screenResult.classList.remove('hidden');
+            document.getElementById('final-score').innerText = gameState.score;
+            
+            let rankTitle = "Cyber Rookie";
+            if (gameState.score === 120) rankTitle = "Cyber Grand Master";
+            else if (gameState.score >= 90) rankTitle = "Cyber Expert";
+            else if (gameState.score >= 60) rankTitle = "Cyber Detective";
+            document.getElementById('final-rank').innerText = rankTitle;
+        }
+
+        window.restartGame = function() {
+            gameState.currentQuestionIndex = 0;
+            gameState.score = 0;
+            screenResult.classList.add('hidden');
+            screenWelcome.classList.remove('hidden');
+        };
+
+        // Save Score & Open Leaderboard
+        window.saveScoreAndOpenLeaderboard = async function() {
+            if (isFirebaseInitialized && db && currentUser) {
+                try {
+                    const leaderboardRef = collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
+                    await addDoc(leaderboardRef, {
+                        name: gameState.playerName,
+                        score: gameState.score,
+                        photo: gameState.playerPhoto,
+                        timestamp: new Date().toISOString()
+                    });
+                } catch (e) {
+                    console.warn("Could not save score to Firestore:", e);
+                }
+            }
+            openLeaderboard();
+        };
+
+        // Leaderboard UI logic
+        const leaderboardModal = document.getElementById('leaderboard-modal');
+        const leaderboardList = document.getElementById('leaderboard-list');
+
+        window.openLeaderboard = async function() {
+            leaderboardModal.classList.remove('hidden');
+            leaderboardList.innerHTML = `
+                <div class="text-center py-8 text-gray-400 text-xs">
+                    <i class="fa-solid fa-spinner fa-spin text-indigo-400 text-lg mb-2"></i>
+                    <p>กำลังโหลดอันดับนักสืบ...</p>
+                </div>
+            `;
+
+            let scoresData = [];
+            if (isFirebaseInitialized && db) {
+                try {
+                    const qRef = collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
+                    const querySnapshot = await getDocs(qRef);
+                    querySnapshot.forEach((docSnap) => {
+                        scoresData.push(docSnap.data());
+                    });
+                } catch (e) {
+                    console.warn("Error fetching leaderboard:", e);
+                }
+            }
+
+            // Fallback mock data if empty
+            if (scoresData.length === 0) {
+                scoresData = [
+                    { name: "สารวัตรไซเบอร์", score: 120, photo: "" },
+                    { name: "หมวดกล้าหาญ", score: 110, photo: "" },
+                    { name: "น้องไอที ป.5", score: 100, photo: "" }
+                ];
+                // Include current player score if played
+                if (gameState.playerName) {
+                    scoresData.push({ name: gameState.playerName, score: gameState.score, photo: gameState.playerPhoto });
+                }
+            }
+
+            // Sort by score descending
+            scoresData.sort((a, b) => b.score - a.score);
+
+            leaderboardList.innerHTML = '';
+            scoresData.forEach((item, index) => {
+                const rankColor = index === 0 ? 'text-yellow-400 bg-yellow-400/10 border-yellow-400/30' : index === 1 ? 'text-gray-300 bg-gray-300/10 border-gray-300/30' : index === 2 ? 'text-amber-600 bg-amber-600/10 border-amber-600/30' : 'text-gray-400 bg-gray-800 border-gray-700';
+                
+                const div = document.createElement('div');
+                div.className = "flex items-center justify-between p-3 rounded-2xl glass-card border border-indigo-500/10";
+                div.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <span class="w-7 h-7 rounded-xl flex items-center justify-center text-xs font-bold border ${rankColor}">${index + 1}</span>
+                        <div class="w-9 h-9 rounded-full overflow-hidden bg-gray-900 border border-gray-700">
+                            ${item.photo ? `<img src="${item.photo}" class="w-full h-full object-cover">` : `<div class="w-full h-full flex items-center justify-center text-xs text-indigo-400 font-bold">${item.name.charAt(0)}</div>`}
+                        </div>
+                        <div>
+                            <h5 class="text-xs font-bold text-white">${item.name}</h5>
+                            <span class="text-[10px] text-gray-400">นักสืบไซเบอร์ ป.5</span>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-sm font-black text-cyan-400">${item.score}</span>
+                        <span class="text-[10px] text-gray-400 block">คะแนน</span>
+                    </div>
+                `;
+                leaderboardList.appendChild(div);
+            });
+        };
+
+        window.closeLeaderboard = function() {
+            leaderboardModal.classList.add('hidden');
+        };
+
+        // MediaPipe Hands Integration for AR Hand Tracking
+        try {
+            const hands = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+            });
+
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.6,
+                minTrackingConfidence: 0.6
+            });
+
+            hands.onResults((results) => {
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    const landmarks = results.multiHandLandmarks[0];
+                    // Index finger tip is landmark 8
+                    const indexTip = landmarks[8];
+                    
+                    // Map normalized coordinates to viewport
+                    const x = (1 - indexTip.x) * window.innerWidth;
+                    const y = indexTip.y * window.innerHeight;
+
+                    handCursor.style.left = `${x}px`;
+                    handCursor.style.top = `${y}px`;
+                    handCursor.classList.remove('hidden');
+                } else {
+                    handCursor.classList.add('hidden');
+                }
+            });
+
+            const camera = new Camera(webcamElement, {
+                onFrame: async () => {
+                    await hands.send({ image: webcamElement });
+                },
+                width: 640,
+                height: 480
+            });
+            camera.start();
+        } catch (e) {
+            console.warn("MediaPipe Hands initialization notice:", e);
+        }
+
+        // Render loop for AR canvas particles
+        function renderARLoop() {
+            const w = arCanvas.width = window.innerWidth;
+            const h = arCanvas.height = window.innerHeight;
+            ctxAr.clearRect(0, 0, w, h);
+
+            particles.forEach((p, index) => {
+                p.x += p.vx;
+                p.y += p.vy;
+                p.alpha -= 0.02;
+                if (p.alpha <= 0) {
+                    particles.splice(index, 1);
+                    return;
+                }
+                ctxAr.save();
+                ctxAr.globalAlpha = p.alpha;
+                ctxAr.fillStyle = p.color;
+                ctxAr.beginPath();
+                ctxAr.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctxAr.fill();
+                ctxAr.restore();
+            });
+
+            requestAnimationFrame(renderARLoop);
+        }
+        renderARLoop();
+
+        window.addEventListener('resize', () => {
+            arCanvas.width = window.innerWidth;
+            arCanvas.height = window.innerHeight;
+        });
+    </script>
+</body>
+</html>
